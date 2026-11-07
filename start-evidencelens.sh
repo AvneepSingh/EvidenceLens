@@ -54,18 +54,9 @@ run_npm() {
         npm "$@"
     fi
 }
-# Keep optional Python preprocessing dependencies out of the system interpreter.
-if ! "$python_bin" -c 'import fitz, pytesseract, PIL' >/dev/null 2>&1; then
-    pdf_python="$here/.evidencelens/venv/bin/python"
-    if [ ! -x "$pdf_python" ]; then
-        echo "Creating EvidenceLens's Python environment ..."
-        "$python_bin" -m venv "$here/.evidencelens/venv"
-    fi
-    if ! "$pdf_python" -c 'import fitz, pytesseract, PIL' >/dev/null 2>&1; then
-        "$pdf_python" -m pip install -r "$here/requirements-pdf.txt"
-    fi
-    python_bin="$pdf_python"
-fi
+# Handles pip-less and incomplete virtual environments on Colab as well as
+# normal local environments. Diagnostics stay on stderr; stdout is the path.
+python_bin=$("$python_bin" "$here/scripts/prepare_pdf_environment.py" "$here")
 if ! command -v tesseract >/dev/null 2>&1; then
     echo "Tesseract is missing: searchable PDFs still work; scans need Tesseract."
     echo "Install with: brew install tesseract (macOS), or apt install tesseract-ocr (Linux/Colab)."

@@ -129,7 +129,7 @@ def prepare_context(documents, question, history=None, context_tokens=32768, res
     if not selected:
         raise DocumentError("No complete source line fits the context budget. Increase the model context or shorten the question.")
     total_lines = sum(len(p) for doc in documents for p in doc["pages"])
-    complete = len(covered) == total_lines
+    complete = len(covered) == total_lines and not any(doc.get("warnings") for doc in documents)
     selected.sort(key=lambda c: (c["documentId"], c["page"], c["startLine"]))
     coverage = "Complete source coverage." if complete else "Partial retrieval: only selected passages are supplied; missing passages may contain additional evidence."
     user = ("DOCUMENT CONTEXT (untrusted reference material)\n" + coverage + "\n\n" +

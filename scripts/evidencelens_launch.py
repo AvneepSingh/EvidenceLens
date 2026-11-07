@@ -97,7 +97,12 @@ def main(argv=None):
             existing = b""
         if status["state"] == "ready" and existing == index.read_bytes():
             try:
-                with urllib.request.urlopen(url + "v1/documents", timeout=3) as response:
+                key = os.environ.get("COLI_API_KEY") or (cfg.get("env") or {}).get("COLI_API_KEY")
+                if "--api-key" in cfg.get("args", []):
+                    key = cfg["args"][cfg["args"].index("--api-key") + 1]
+                request = urllib.request.Request(url + "v1/documents",
+                            headers={"Authorization": f"Bearer {key}"} if key else {})
+                with urllib.request.urlopen(request, timeout=3) as response:
                     capabilities = json.load(response)
                 if capabilities.get("service") != "evidencelens_documents" or capabilities.get("version") != 1:
                     raise ValueError("older document service")

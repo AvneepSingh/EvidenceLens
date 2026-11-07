@@ -28,7 +28,10 @@ The launcher uses the current Python interpreter if PyMuPDF, Pytesseract, and
 Pillow are installed. Otherwise it installs `requirements-pdf.txt` in the
 project's `.evidencelens/venv` and launches the same gateway with that interpreter.
 Extraction subprocesses inherit this Python environment. Subsequent launches
-reuse the environment. Stop an older running gateway with Ctrl+C, then restart;
+reuse the environment. If a virtual environment lacks pip, the launcher first
+tries `ensurepip`, then uses the base interpreter's pip with its supported
+`--python` option to install pip into that environment. An unusable environment
+is preserved as `venv.incomplete.<id>` before recreation. Stop an older running gateway with Ctrl+C, then restart;
 rebuilding the frontend alone cannot load new Python routes into an old process.
 
 Install the Tesseract system executable separately if scanned PDFs are needed:
@@ -73,6 +76,16 @@ Expose the port using Colab's supported proxy instead of opening a notebook's
 from google.colab import output
 output.serve_kernel_port_as_window(8000)
 ```
+
+If an older Colab copy stops with `venv/bin/python: No module named pip`, repair
+that environment without deleting it:
+
+```python
+!python3 -m pip --python /content/EvidenceLens/.evidencelens/venv/bin/python install pip
+!bash /content/EvidenceLens/start-evidencelens.sh --host 0.0.0.0 --no-browser
+```
+
+The updated launcher performs this repair automatically.
 
 Use the selected port if different. If using the frontend separately, set its
 existing Connection base URL to the proxied gateway URL plus `/v1`. Document

@@ -20,7 +20,7 @@ def native_text(page):
     left = [b for b in blocks if b[2] <= midpoint + 8]
     right = [b for b in blocks if b[0] >= midpoint - 8]
     # A vertical overlap differentiates columns from ordinary indented text.
-    columns = any(min(a[3], b[3]) - max(a[1], b[1]) > 15 for a in left for b in right)
+    columns = any(min(a[3], b[3]) - max(a[1], b[1]) > 15 for a in left for b in right if a is not b)
     if not columns:
         return "\n".join(b[4] for b in sorted(blocks, key=lambda b: (round(b[1], 1), b[0])))
     spanning = sorted([b for b in blocks if b not in left and b not in right], key=lambda b: b[1])
