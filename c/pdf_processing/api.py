@@ -3,7 +3,7 @@ import threading
 import re
 import shutil
 from urllib.parse import parse_qs, urlsplit
-from .common import DocumentError
+from .common import DocumentError, EvidenceValidationError
 from .service import DocumentService
 
 _lock = threading.Lock()
@@ -26,7 +26,7 @@ def handle(handler, request_id):
     parts = path.removeprefix("/v1/documents").strip("/").split("/")
     try:
         if handler.command == "GET" and path == "/v1/documents":
-            handler.send_json(200, {"service": "evidencelens_documents", "version": 1,
+            handler.send_json(200, {"service": "evidencelens_documents", "version": 1, "answer_repair": True,
                               "limits": service.limits, "ocr_available": bool(shutil.which("tesseract"))}, request_id)
         elif handler.command == "POST" and path == "/v1/documents":
             if handler.headers.get_all("Transfer-Encoding") or len(handler.headers.get_all("Content-Length", [])) != 1:
@@ -44,6 +44,8 @@ def handle(handler, request_id):
             handler.send_json(202, {"document_id": ident, "status": "processing"}, request_id)
         elif handler.command == "POST" and parts == ["context"]:
             handler.send_json(200, service.context(handler.read_json(), getattr(handler.server, "context_limit", None)), request_id)
+        elif handler.command == "POST" and parts == ["repair"]:
+            handler.send_json(200, service.repair(handler.read_json(), getattr(handler.server, "context_limit", None)), request_id)
         elif handler.command == "POST" and parts == ["verify"]:
             handler.send_json(200, service.verify(handler.read_json()), request_id)
         elif handler.command == "POST" and len(parts) == 2 and parts[1] == "cancel":
@@ -69,6 +71,6 @@ def handle(handler, request_id):
         # Reject upload framing early rather than draining an untrusted huge body.
         if handler.command == "POST" and path == "/v1/documents" and not handler._body_read:
             handler.close_connection = True
-        handler.send_json(error.status, {"error": {"message": str(error), "code": "document_error"}}, request_id,
+        handler.send_json(error.status, {"error": {"message": str(error), "code": "evidence_validation_error" if isinstance(error, EvidenceValidationError) else "document_error"}}, request_id,
                           {"Retry-After": "2"} if error.status == 429 else None)
     return True

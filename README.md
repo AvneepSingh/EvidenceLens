@@ -57,8 +57,10 @@ evidence as well as supporting evidence.
 **Reference checking verifies where a quotation came from, not whether it proves
 the model's conclusion.** Classification, reasoning, and completeness remain
 model judgments. OCR can also introduce recognition errors; inspect the original
-scan when accuracy matters. Invalid references cause the answer to be rejected
-rather than displayed as verified.
+scan when accuracy matters. Invalid JSON or references trigger one automatic
+repair pass using the original question, source context, draft text, and validation
+feedback. The repaired answer is checked again before being shown. If it still
+fails, it is rejected rather than displayed as verified.
 
 Page numbers count from the first physical PDF page. Line numbers are generated
 from extracted text and restart on each page; they can differ from printed line

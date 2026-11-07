@@ -2,12 +2,16 @@ import { endpoint, type ChatMessage } from './api'
 import type { EvidenceAnswer, PdfSource } from './pdf-evidence'
 import { abortable } from './abortable'
 
+export class DocumentAPIError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code?: string) { super(message); this.name = 'DocumentAPIError' }
+}
+
 const auth = (key: string) => key ? { Authorization: `Bearer ${key}` } : undefined
 async function read<T>(response: Response): Promise<T> {
   let data
   try { data = await response.json() }
   catch { throw new Error('Document processing is unavailable. Start the updated EvidenceLens gateway and upload the file again.') }
-  if (!response.ok) throw new Error(data.error?.message || `Document service: HTTP ${response.status}`)
+  if (!response.ok) throw new DocumentAPIError(data.error?.message || `Document service: HTTP ${response.status}`, response.status, data.error?.code)
   return data as T
 }
 export interface PreparedContext {
@@ -71,6 +75,9 @@ export function prepareDocumentContext(baseUrl: string, apiKey: string, document
 }
 export async function verifyDocumentAnswer(baseUrl: string, apiKey: string, contextId: string, answer: string, signal: AbortSignal) {
   return (await post<{ answer: EvidenceAnswer }>(baseUrl, apiKey, 'documents/verify', { context_id: contextId, answer }, signal)).answer
+}
+export function repairDocumentContext(baseUrl: string, apiKey: string, contextId: string, answer: string, signal: AbortSignal) {
+  return post<PreparedContext>(baseUrl, apiKey, 'documents/repair', { context_id: contextId, answer }, signal)
 }
 export async function fetchDocumentResource(baseUrl: string, apiKey: string, id: string, resource: 'text' | 'original', signal?: AbortSignal) {
   const response = await fetch(endpoint(baseUrl, `documents/${encodeURIComponent(id)}/${resource}`), { headers: auth(apiKey), signal })

@@ -209,6 +209,29 @@ numbered source lines; expand its document controls to download TXT or open the
 original PDF at the cited page. Attachment preview offers the same controls.
 Downloads are fetched through authenticated API requests.
 
+## Automatic answer repair
+
+A model draft that fails JSON/schema validation or source checks receives one
+automatic repair pass. The backend recomputes the validation error and turns
+JSON claims/references into readable, explicitly unverified draft text. Malformed
+JSON is included as bounded raw text instead. This text and the validation error
+are untrusted data in the user message, alongside the original question and
+retrieved source excerpts. They never become system instructions.
+
+The repair prompt is budgeted again, with response space reserved; draft feedback
+can be truncated and fewer source passages selected if necessary. The interface
+updates coverage and shows “Rechecking the draft against your question and source
+context.” The same small Stop control cancels either pass. Only a complete reply
+that passes backend and frontend validation is displayed as an evidence answer.
+If repair also fails, the user receives a clear error rather than unchecked
+citations. HTTP/authentication/network failures do not trigger model retries.
+
+Each context permits only one repair; repaired contexts cannot recursively
+request repairs. Token usage includes both generations when the server reports
+usage for both. Ordinary chat is unchanged. The capability response includes
+`answer_repair: true`, allowing the launcher to detect a running server that
+needs restarting after this update.
+
 ## Endpoints
 
 All routes use the gateway's existing authentication, host validation, and CORS.
@@ -223,6 +246,7 @@ They are under the same configured `/v1` prefix as chat.
 | GET | `/v1/documents/<id>/text` | Download preserved structured UTF-8 TXT. |
 | GET | `/v1/documents/<id>/original` | Download/open the original document. |
 | POST | `/v1/documents/context` | Retrieve context for document IDs, a question, and optional text history. |
+| POST | `/v1/documents/repair` | Prepare one budgeted reanalysis prompt from a rejected draft and its original context. |
 | POST | `/v1/documents/verify` | Validate a model answer using its saved `context_id`. |
 
 Context input includes `document_ids`, `question`, `history`, `context_tokens`,

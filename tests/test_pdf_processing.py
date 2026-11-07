@@ -386,6 +386,24 @@ class HTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(prepared['budget']['context_tokens'],8192)
         self.assertLessEqual(prepared['budget']['prompt_token_upper_bound'] + prepared['response_tokens'],8192)
 
+    def test_http_validation_failure_can_prepare_one_repair(self):
+        ident = 'a'*32
+        doc = {'document_id':ident,'filename':'paper.pdf','pages':[['Nine tasks are complete.']]}
+        atomic_json(Path(self.temp.name)/f'{ident}.json',doc)
+        with self.request('/v1/documents/context', {'document_ids':[ident], 'question':'How many tasks?'}) as response:
+            prepared=json.load(response)
+        with self.assertRaises(HTTPError) as caught:
+            self.request('/v1/documents/verify', {'context_id':prepared['context_id'],'answer':'broken JSON'})
+        self.assertEqual(json.load(caught.exception)['error']['code'],'evidence_validation_error')
+        with self.request('/v1/documents/repair', {'context_id':prepared['context_id'],'answer':'broken JSON'}) as response:
+            repaired=json.load(response)
+        self.assertIn('How many tasks?',repaired['messages'][-1]['content'])
+        self.assertIn('broken JSON',repaired['messages'][-1]['content'])
+        fixed=json.dumps({'claims':[{'kind':'factual','text':'Nine tasks.','citations':[{'documentId':ident,'page':1,'startLine':1,'endLine':1,'quote':'Nine tasks are complete.'}]}]})
+        with self.request('/v1/documents/verify', {'context_id':repaired['context_id'],'answer':fixed}) as response:
+            self.assertEqual(json.load(response)['answer']['claims'][0]['text'],'Nine tasks.')
+        self.assertEqual(self.engine.calls,[])
+
     def test_document_routes_require_same_authentication_as_chat(self):
         with self.assertRaises(HTTPError) as caught: self.request('/v1/documents/'+'a'*32,auth=False)
         self.assertEqual(caught.exception.code,401)

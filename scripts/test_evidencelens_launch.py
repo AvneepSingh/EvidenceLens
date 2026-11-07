@@ -71,7 +71,7 @@ class EvidenceLensLaunchTests(unittest.TestCase):
         with patch.object(launch.urllib.request, 'urlopen') as get:
             index, capabilities = MagicMock(), MagicMock()
             index.__enter__.return_value.read.return_value = (self.root / 'web/dist/index.html').read_bytes()
-            capabilities.__enter__.return_value.read.return_value = '{"service":"evidencelens_documents","version":1}'
+            capabilities.__enter__.return_value.read.return_value = '{"service":"evidencelens_documents","version":1,"answer_repair":true}'
             get.side_effect = [index, capabilities]
             self.assertEqual(launch.main(['--no-browser']), 0)
         self.mocks['start_server'].assert_not_called()
@@ -83,6 +83,17 @@ class EvidenceLensLaunchTests(unittest.TestCase):
             index.__enter__.return_value.read.return_value = (self.root / 'web/dist/index.html').read_bytes()
             get.side_effect = [index, OSError('old server')]
             with self.assertRaisesRegex(launch.setup_flow.SetupError, 'older EvidenceLens server'):
+                launch.main(['--no-browser'])
+        self.mocks['start_server'].assert_not_called()
+
+    def test_requires_restart_when_existing_document_service_lacks_answer_repair(self):
+        self.mocks['server_status'].return_value = {'state': 'ready'}
+        with patch.object(launch.urllib.request, 'urlopen') as get:
+            index, capabilities = MagicMock(), MagicMock()
+            index.__enter__.return_value.read.return_value = (self.root / 'web/dist/index.html').read_bytes()
+            capabilities.__enter__.return_value.read.return_value = '{"service":"evidencelens_documents","version":1}'
+            get.side_effect = [index, capabilities]
+            with self.assertRaisesRegex(launch.setup_flow.SetupError, 'answer-repair routes'):
                 launch.main(['--no-browser'])
         self.mocks['start_server'].assert_not_called()
 

@@ -44,9 +44,10 @@ import Brio from "./Brio"
 import { EvidenceMessage } from "./components/EvidenceMessage"
 import { ProgressStop } from "./components/ProgressStop"
 import { useChatFiles } from "./lib/use-chat-files"
-import { prepareDocumentContext, verifyDocumentAnswer, type PreparedContext } from "./lib/document-api"
+import { prepareDocumentContext, type PreparedContext } from "./lib/document-api"
 import { DocumentPreview } from "./components/DocumentPreview"
-import { evidenceMarkdown, verifyAnswer } from "./lib/pdf-evidence"
+import { resolveEvidenceDraft } from "./lib/evidence-repair"
+import { evidenceMarkdown } from "./lib/pdf-evidence"
 import { BrainWorkspace } from "./BrainWorkspace"
 import { Brand } from "./components/Brand"
 import { ImageControls, ImageProgressCard, ImageResultCard, ImageStoppedCard, type ImageRun } from "./components/ImageTurn"
@@ -127,6 +128,7 @@ export default function App() {
   const chatFiles = useChatFiles(cacheSlot, baseUrl, apiKey, setError)
   const [previewDocument, setPreviewDocument] = useState<string | null>(null)
   const [evidenceCoverage, setEvidenceCoverage] = useState<PreparedContext["coverage"] | null>(null)
+  const [repairingAnswer, setRepairingAnswer] = useState(false)
   const [requestStarted, setRequestStarted] = useState<number | null>(null)
   const [requestClock, setRequestClock] = useState(Date.now())
   useEffect(() => {
@@ -306,6 +308,7 @@ export default function App() {
   const runStream = async (payload: ChatMessage[], targetId: string) => {
     setError("")
     setLoading(true)
+    setRepairingAnswer(false)
     setRequestStarted(Date.now())
     setRequestClock(Date.now())
     setStreamStart(null)
@@ -335,7 +338,7 @@ export default function App() {
         // Only role + plain string content reaches Qwen. No images or raw files.
         turns = prepared.messages.map(item => message(item.role, item.content))
       }
-      const result = await streamChat({
+      const generate = () => streamChat({
         baseUrl,
         apiKey,
         model,
@@ -356,7 +359,7 @@ export default function App() {
           setTokenCount(count)
           const since = (performance.now() - decodeStart) / 1000
           if (count > 1 && since > 0.2) setTokPerSec((count - 1) / since)
-          updateMessages((current) => appendDelta(current, targetId, "reasoning", delta))
+          if (!evidenceMode) updateMessages((current) => appendDelta(current, targetId, "reasoning", delta))
         },
         onDelta: (delta) => {
           if (firstToken) { setTtft(performance.now() - t0); setStreamStart(performance.now()); decodeStart = performance.now(); firstToken = false }
@@ -372,12 +375,22 @@ export default function App() {
           else updateMessages((current) => appendDelta(current, targetId, "content", delta))
         },
       })
+      let result = await generate()
       if (evidenceMode) {
-        controller.signal.throwIfAborted()
-        if (result.finishReason !== "stop") throw new Error("The evidence answer was incomplete. Try a shorter question or fewer files.")
         if (!prepared) throw new Error("Document context was not prepared.")
-        const checked = await verifyDocumentAnswer(baseUrl, apiKey, prepared.context_id, rawEvidence, controller.signal)
-        const evidence = verifyAnswer(JSON.stringify(checked), documents)
+        const resolved = await resolveEvidenceDraft({
+          baseUrl, apiKey, sources: documents, prepared, first: { raw: rawEvidence, result }, signal: controller.signal,
+          onRepair: context => { setRepairingAnswer(true); if (context) setEvidenceCoverage(context.coverage) },
+          generate: async context => {
+            prepared = context
+            turns = context.messages.map(item => message(item.role, item.content))
+            rawEvidence = ""
+            const repairedResult = await generate()
+            return { raw: rawEvidence, result: repairedResult }
+          },
+        })
+        result = resolved.result
+        const evidence = resolved.evidence
         updateMessages(current => current.map(item => item.id === targetId ? {
           ...item, evidence, documents, content: evidenceMarkdown(evidence, documents),
         } : item))
@@ -705,7 +718,7 @@ export default function App() {
             </div>
           </form>
           {!imageMode && evidenceCoverage && <p className="chat-files-hint">{evidenceCoverage.complete ? "Complete document context" : "Selected relevant passages"} · {evidenceCoverage.selected_lines}/{evidenceCoverage.total_lines} source lines · {evidenceCoverage.documents_selected}/{evidenceCoverage.documents_total} files</p>}
-          {!imageMode && loading && <p className="chat-operation-status" role="status">{tokenCount ? `Generating answer · ${tokenCount} chunks received` : "Waiting for model to read and answer"} · {Math.max(0, Math.floor((requestClock - (requestStarted || requestClock)) / 1000))}s</p>}
+          {!imageMode && loading && <p className="chat-operation-status" role="status">{repairingAnswer ? "Rechecking the draft against your question and source context" : tokenCount ? `Generating answer · ${tokenCount} chunks received` : "Waiting for model to read and answer"} · {Math.max(0, Math.floor((requestClock - (requestStarted || requestClock)) / 1000))}s</p>}
           {!imageMode && chatFiles.sources.length > 0 && !loading && <p className="chat-files-hint">Ask a question, or send to get a brief abstract. Files stay attached to this chat. Page and extracted line references appear in the answer.</p>}
           {empty && !chatFiles.sources.length && <div className="suggestions">{suggestions.map(({ key, Icon, label }) => <button key={key} onClick={() => { setDraft(t(key)); draftRef.current?.focus() }}><Icon />{t(label)}</button>)}</div>}
           {!empty && !imageMode && lastRun?.finishReason === "length" && <p className="truncation-note">{t("topbar.truncatedHelp")}</p>}

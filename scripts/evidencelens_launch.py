@@ -104,12 +104,12 @@ def main(argv=None):
                             headers={"Authorization": f"Bearer {key}"} if key else {})
                 with urllib.request.urlopen(request, timeout=3) as response:
                     capabilities = json.load(response)
-                if capabilities.get("service") != "evidencelens_documents" or capabilities.get("version") != 1:
+                if capabilities.get("service") != "evidencelens_documents" or capabilities.get("version") != 1 or capabilities.get("answer_repair") is not True:
                     raise ValueError("older document service")
             except (OSError, ValueError):
                 raise setup_flow.SetupError(
                     "An older EvidenceLens server is already running. Stop it with Ctrl+C in its terminal, "
-                    "then rerun ./start-evidencelens.sh to load the Python document pipeline.")
+                    "then rerun ./start-evidencelens.sh to load the current document and answer-repair routes.")
             print("EvidenceLens is already running.")
             if not args.no_browser:
                 webbrowser.open(url)

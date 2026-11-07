@@ -11,6 +11,10 @@ class DocumentError(Exception):
         self.status = status
 
 
+class EvidenceValidationError(DocumentError):
+    """A model draft failed schema/source validation and may be repaired once."""
+
+
 def atomic_json(path, data):
     path = Path(path)
     temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")

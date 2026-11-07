@@ -100,8 +100,11 @@ no raw file, image, or multimodal payload is included. Coverage is shown so part
 retrieval is explicit. Ordinary text chat continues on its original streaming path.
 
 `documents/verify` checks the final answer against saved retrieved lines, then the
-frontend checks quotations against its source text. Unsupported references reject
-the answer. Source inspection includes TXT and original-PDF controls. New backend
+frontend checks quotations against its source text. A failed JSON/schema or
+citation check triggers one bounded repair generation, passing the rejected draft
+as untrusted text with the question, source context, and validation error. It is
+checked again before display. Stop applies to both passes; service/network errors
+are not retried, and a second validation failure rejects the answer. Source inspection includes TXT and original-PDF controls. New backend
 routes share chat authentication, host checks, and CORS; API helpers preserve
 Colab/reverse-proxy URL prefixes. See [the pipeline guide](../docs/pdf-processing.md)
 for endpoints, setup, resource limits, and retention.

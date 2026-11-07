@@ -8,8 +8,9 @@ import threading
 import time
 import uuid
 from .citations import validate_answer
-from .common import DocumentError, atomic_json, positive_env, read_json, safe_filename, valid_id
+from .common import DocumentError, EvidenceValidationError, atomic_json, positive_env, read_json, safe_filename, valid_id
 from .retrieval import prepare_context
+from .repair import make_feedback
 
 
 class DocumentService:
@@ -183,7 +184,9 @@ class DocumentService:
         limit = min(requested, model_context or 32768)
         selection = prepare_context(docs, body.get("question"), body.get("history"), limit, body.get("response_tokens", 2048))
         ident = uuid.uuid4().hex
-        atomic_json(self.folder / f"{ident}.context.json", {"document_ids": ids, "chunks": selection["chunks"], "created": time.time()})
+        atomic_json(self.folder / f"{ident}.context.json", {"document_ids": ids, "chunks": selection["chunks"], "created": time.time(),
+                    "question": body.get("question"), "history": body.get("history") or [],
+                    "context_tokens": limit, "response_tokens": selection["response_tokens"], "repair_attempt": 0})
         return {"context_id": ident, **{k: v for k, v in selection.items() if k != "chunks"}}
 
     def verify(self, body):
@@ -194,6 +197,42 @@ class DocumentService:
             raise DocumentError("Retrieved context not found. Ask the question again.", 404) from error
         docs = [self.document(i) for i in context["document_ids"]]
         return {"answer": validate_answer(body.get("answer"), docs, context["chunks"])}
+
+    def repair(self, body, model_context=None):
+        ident = valid_id(body.get("context_id"))
+        raw = body.get("answer")
+        if not isinstance(raw, str):
+            raise DocumentError("A previous answer as plain text is required for repair.")
+        # Consume the attempt atomically so concurrent requests cannot create an
+        # unbounded repair loop. A repaired context cannot itself be repaired.
+        with self.lock:
+            try:
+                context = read_json(self.folder / f"{ident}.context.json")
+            except FileNotFoundError as error:
+                raise DocumentError("Retrieved context not found. Ask the question again.", 404) from error
+            if context.get("repair_attempt", 0) >= 1 or context.get("repair_requested"):
+                raise DocumentError("The single automatic repair attempt has already been used.")
+            if not context.get("question"):
+                raise DocumentError("This context predates answer repair. Ask the question again.")
+            docs = [self.document(i) for i in context["document_ids"]]
+            try:
+                validate_answer(raw, docs, context["chunks"])
+            except EvidenceValidationError as error:
+                validation_error = str(error)
+            else:
+                raise DocumentError("The answer is already valid and does not need repair.")
+            context["repair_requested"] = True
+            atomic_json(self.folder / f"{ident}.context.json", context)
+        limit = min(context["context_tokens"], model_context or 32768)
+        feedback = make_feedback(raw, validation_error, limit)
+        selection = prepare_context(docs, context["question"], context.get("history"), limit,
+                                    context["response_tokens"], repair_feedback=feedback)
+        repaired_id = uuid.uuid4().hex
+        atomic_json(self.folder / f"{repaired_id}.context.json", {
+            "document_ids": context["document_ids"], "chunks": selection["chunks"], "created": time.time(),
+            "question": context["question"], "context_tokens": limit, "response_tokens": selection["response_tokens"],
+            "repair_attempt": 1, "parent_context_id": ident, "repair_feedback": feedback})
+        return {"context_id": repaired_id, **{k: v for k, v in selection.items() if k != "chunks"}}
 
     def download(self, ident, kind):
         doc = self.document(ident)
