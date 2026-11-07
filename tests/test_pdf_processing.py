@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "c"))
-import fitz
+import pymupdf as fitz
 from PIL import Image, ImageDraw, ImageFont
 from pdf_processing.common import DocumentError, atomic_json
 from pdf_processing.extractor import extract, native_text, usable_text
@@ -293,6 +293,18 @@ class ServiceTests(unittest.TestCase):
             state = self.wait(ident)
             self.assertEqual(state['status'],'failed')
             self.assertIn('time limit',state['error'])
+
+    def test_worker_missing_packages_explains_which_environment_to_repair(self):
+        folder = Path(self.temp.name)
+        ident = 'f'*32
+        task = dict(folder=str(folder), document_id=ident, input=str(folder/'input.pdf'), filename='input.pdf', language='eng', limits=LIMITS)
+        path = folder / 'task.json'; atomic_json(path, task)
+        result = subprocess.run([sys.executable, '-S', '-m', 'pdf_processing.worker', str(path)], cwd=ROOT/'c', capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        state = json.loads((folder/f'{ident}.status.json').read_text())
+        self.assertEqual(state['status'],'failed')
+        self.assertIn('requirements-pdf.txt',state['error'])
+        self.assertIn(sys.executable,state['error'])
 
     def test_path_traversal_ids_rejected(self):
         for ident in ('../secrets','bad',None):

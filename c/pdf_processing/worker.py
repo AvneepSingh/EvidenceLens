@@ -36,7 +36,13 @@ def main():
         atomic_json(folder / f"{ident}.status.json", {"status": "ready", "phase": "ready", "progress": 1,
                     "processed_pages": doc["page_count"], "page_count": doc["page_count"], "ocr": bool(doc["ocr_pages"])})
     except Exception as error:
-        atomic_json(folder / f"{ident}.status.json", {"status": "failed", "phase": "failed", "error": str(error) or type(error).__name__})
+        message = str(error) or type(error).__name__
+        if isinstance(error, ModuleNotFoundError):
+            requirements = Path(__file__).resolve().parents[2] / "requirements-pdf.txt"
+            message = (f"PDF dependencies are missing from {sys.executable}. Install them using "
+                       f"{sys.executable} -m pip install -r {requirements}, then restart EvidenceLens. "
+                       f"Missing module: {error.name}.")
+        atomic_json(folder / f"{ident}.status.json", {"status": "failed", "phase": "failed", "error": message})
         return 1
     return 0
 

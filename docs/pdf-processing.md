@@ -25,7 +25,7 @@ From the repository root:
 ```
 
 The launcher uses the current Python interpreter if PyMuPDF, Pytesseract, and
-Pillow are installed. Otherwise it installs `requirements-pdf.txt` in the
+Pillow are installed. Otherwise it installs `requirements.txt` (through the compatible `requirements-pdf.txt` entry point) in the
 project's `.evidencelens/venv` and launches the same gateway with that interpreter.
 Extraction subprocesses inherit this Python environment. Subsequent launches
 reuse the environment. If a virtual environment lacks pip, the launcher first
@@ -58,7 +58,7 @@ Keep the existing working model and Colibri engine. In the notebook environment,
 install the Python and OCR dependencies:
 
 ```python
-%pip install -r /content/EvidenceLens/requirements-pdf.txt
+%pip install -r /content/EvidenceLens/requirements.txt
 !apt-get update -qq
 !apt-get install -y tesseract-ocr tesseract-ocr-eng
 ```
@@ -86,6 +86,23 @@ that environment without deleting it:
 ```
 
 The updated launcher performs this repair automatically.
+
+If the next error is `No module named 'fitz'`, the PDF dependencies were not
+installed in the interpreter running the server. Install the complete requirements
+into EvidenceLens's virtual environment, verify the imports there, and restart:
+
+```python
+!python3 -m pip --python /content/EvidenceLens/.evidencelens/venv/bin/python install -r /content/EvidenceLens/requirements.txt
+!/content/EvidenceLens/.evidencelens/venv/bin/python -c "import pymupdf, pytesseract, PIL; print('PDF dependencies OK')"
+!bash /content/EvidenceLens/start-evidencelens.sh --host 0.0.0.0 --no-browser
+```
+
+The distribution is **PyMuPDF**, not the unrelated PyPI package called `fitz`.
+The backend now imports the recommended `pymupdf` module using a `fitz` alias.
+Notebook `%pip` commands target the notebook interpreter, which can differ from
+the gateway's virtual environment. The worker reports its interpreter path when
+a processing dependency is missing.
+
 
 Use the selected port if different. If using the frontend separately, set its
 existing Connection base URL to the proxied gateway URL plus `/v1`. Document

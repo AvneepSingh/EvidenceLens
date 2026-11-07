@@ -9,7 +9,7 @@ import subprocess
 import sys
 import uuid
 
-PDF_IMPORTS = "import fitz, pytesseract, PIL"
+PDF_IMPORTS = "import pymupdf, pytesseract, PIL"
 PYTHON_CHECK = "import sys; sys.exit(sys.version_info < (3, 10))"
 
 

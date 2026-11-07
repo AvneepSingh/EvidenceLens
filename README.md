@@ -75,6 +75,15 @@ Requirements:
 - A compatible text-generating model and enough disk space and memory for it.
   First-time model and dependency installation requires an internet connection.
 
+To install the Python dependencies manually in your gateway's Python environment:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+The launcher can also create and prepare its own Python environment automatically.
+Tesseract itself is a separate system installation for scanned pages.
+
 From the repository root:
 
 ```bash

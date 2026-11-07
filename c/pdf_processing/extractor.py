@@ -36,7 +36,7 @@ def native_text(page):
 
 
 def extract(path, filename, document_id, language, limits, progress):
-    import fitz
+    import pymupdf as fitz
     from PIL import Image
     path = Path(path)
     pages, methods, warnings = [], [], []
