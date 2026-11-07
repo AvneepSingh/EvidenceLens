@@ -32,8 +32,9 @@ npm install
 npm run dev
 ```
 
-The default endpoint is `http://127.0.0.1:8000/v1`. Start the API server from
-PR #21 (or any compatible backend), then use **Probe server** to load its models.
+The default endpoint is `http://127.0.0.1:8000/v1`. Start the gateway from this checkout and use **Probe server** to load its models.
+Plain chat can use an OpenAI-compatible backend, but uploads require this
+checkout's `/v1/documents` routes at the same configured base URL.
 
 Local validation:
 
@@ -79,31 +80,31 @@ source snapshots. New chat starts an empty collection. Archived conversations
 restore their source collection when reopened. Reload clears in-memory chats.
 The existing image attachment button remains available for vision models.
 
-PDF.js extracts embedded text first. Pages without text and image uploads fall
-back to Tesseract.js OCR in a browser worker. Choose English, French, or both
-before uploading. The worker, architecture-specific WASM cores, and compact
-language models are bundled and served locally from `/ocr/`; document images
-never go to an external OCR service. They are loaded only when OCR is needed,
-and language data is cached by Tesseract in the browser. PDF text extraction is
-faster than OCR and skips it when a text layer exists. OCR may introduce text
-errors or miss content; complex layouts and pages mixing text with scanned
-images may require preprocessing. Password-protected PDFs are unsupported.
+Uploads now use the existing Python gateway's `/v1/documents` routes. They run
+PyMuPDF extraction and Pytesseract/Pillow OCR in isolated, bounded subprocesses,
+then persist numbered UTF-8 TXT and JSON metadata under `data/extracted/`.
+The browser no longer downloads PDF.js, Tesseract.js, WASM OCR cores, or language
+models. Tesseract's system executable and selected languages must be installed
+on the backend host for scans. Native searchable pages skip OCR.
 
-A small circular indicator shows actual extraction progress, with Stop at its
-center. Stop aborts parsing, rendering, and active recognition; if stopped during
-OCR initialization, the worker is disposed as soon as it finishes initializing.
-Generation uses the same Stop control and an indeterminate ring with elapsed
-seconds, since the model does not provide a reliable completion percentage.
-The local model remains the main factor in answer speed; OCR does not accelerate
-model inference.
+The compact ring shows upload and page extraction progress with Stop in its
+center. Chips show successful attachments; failures use the existing error
+banner. Preview a chip to inspect numbered text, download TXT, or open the
+original PDF. Answers retain their original source snapshots.
 
-Questions with files use the existing `/v1/chat/completions` streaming API.
-No engine, database, or server routes changed. Every page and line is sent,
-using compact page arrays to reduce repeated prompt metadata. Line 1 is the
-first element of each page's lines array; indexes restart on every page.
-Supported answers are held until JSON and source checks succeed, so partial
-or fabricated citations never appear as verified answers. Plain chat continues
-to stream normally. The model response schema is in `src/lib/pdf-evidence.ts`.
+Before a document question, `documents/context` applies page-local overlapping
+chunks and BM25 retrieval across attachments. It returns plain-text messages and
+a safe context/response budget, honoring the model's context window up to 32,768
+tokens. Only string content is sent through the unchanged chat-completions API;
+no raw file, image, or multimodal payload is included. Coverage is shown so partial
+retrieval is explicit. Ordinary text chat continues on its original streaming path.
+
+`documents/verify` checks the final answer against saved retrieved lines, then the
+frontend checks quotations against its source text. Unsupported references reject
+the answer. Source inspection includes TXT and original-PDF controls. New backend
+routes share chat authentication, host checks, and CORS; API helpers preserve
+Colab/reverse-proxy URL prefixes. See [the pipeline guide](../docs/pdf-processing.md)
+for endpoints, setup, resource limits, and retention.
 
 Claims are classified independently:
 
@@ -119,13 +120,12 @@ verify quote provenance, not semantic entailment: labels, completeness, and
 conclusions remain model judgments. OCR quotations are checked against OCR text,
 which can itself be imperfect. Text files and images each have one source page.
 
-Limits: 64 MiB, 1,000 pages, 2 million extracted characters, and a 120-second
-extraction timeout per file; 100,000 characters of serialized evidence per
-question. The full collection is sent with no retrieval or silent truncation.
-Smaller model contexts may require fewer or shorter documents; API context
-errors are shown. Extracted text goes to the selected model endpoint only when
-sending a question. New document controls and labels are currently English;
-existing app locales still work.
+Defaults: 64 MiB, 500 pages, and 2 million extracted characters per file;
+30 seconds of OCR per page, 300 seconds per job, and one concurrent extraction.
+Documents persist server-side; removing an attachment does not delete its files.
+The full source remains available for inspection, while only budgeted relevant
+passages go to the model. The Python guide lists configurable limits. Frontend
+controls remain in English; existing app locales still work.
 
 The EvidenceLens branding uses an SVG document/lens mark, warm off-white, gold,
 and brown palettes, and a complementary dark mode. Existing storage keys and

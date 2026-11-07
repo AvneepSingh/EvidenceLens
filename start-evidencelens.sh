@@ -54,16 +54,32 @@ run_npm() {
         npm "$@"
     fi
 }
+# Keep optional Python preprocessing dependencies out of the system interpreter.
+if ! "$python_bin" -c 'import fitz, pytesseract, PIL' >/dev/null 2>&1; then
+    pdf_python="$here/.evidencelens/venv/bin/python"
+    if [ ! -x "$pdf_python" ]; then
+        echo "Creating EvidenceLens's Python environment ..."
+        "$python_bin" -m venv "$here/.evidencelens/venv"
+    fi
+    if ! "$pdf_python" -c 'import fitz, pytesseract, PIL' >/dev/null 2>&1; then
+        "$pdf_python" -m pip install -r "$here/requirements-pdf.txt"
+    fi
+    python_bin="$pdf_python"
+fi
+if ! command -v tesseract >/dev/null 2>&1; then
+    echo "Tesseract is missing: searchable PDFs still work; scans need Tesseract."
+    echo "Install with: brew install tesseract (macOS), or apt install tesseract-ocr (Linux/Colab)."
+fi
 cd "$here/web"
 echo "Building EvidenceLens from $here/web ..."
-# npm ci keeps the lockfile authoritative, including the PDF parser and worker.
+# npm ci keeps the lockfile authoritative, using the recorded versions.
 # Subsequent launches can use the verified installation until the lockfile changes.
 dependency_hash=$("$python_bin" -c 'import hashlib; print(hashlib.sha256(open("package-lock.json", "rb").read() + open("package.json", "rb").read()).hexdigest())')
 installed_hash=
 if [ -f node_modules/.evidencelens-dependencies ]; then
     installed_hash=$(cat node_modules/.evidencelens-dependencies)
 fi
-if [ "$dependency_hash" != "$installed_hash" ] || [ ! -d node_modules/pdfjs-dist ] || [ ! -d node_modules/vite ]; then
+if [ "$dependency_hash" != "$installed_hash" ] || [ ! -d node_modules/vite ]; then
     run_npm ci --include=optional
     printf '%s\n' "$dependency_hash" > node_modules/.evidencelens-dependencies
 fi

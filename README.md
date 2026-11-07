@@ -22,9 +22,14 @@ the supplied documents, with clickable page and line references where applicable
   a separate analysis tab. Files stay attached for follow-up questions.
 - **Quick abstracts:** attach files and send an empty message to request a brief
   abstract.
-- **Local extraction and OCR:** PDF.js reads existing PDF text. Pages without
-  text and image uploads use Tesseract.js in a browser worker. English, French,
-  and combined English/French recognition are available.
+- **Python extraction and OCR:** PyMuPDF reads selectable PDF text first.
+  Isolated workers use Pytesseract and Pillow for pages that need OCR, including
+  mixed searchable/scanned PDFs. English and French work when their Tesseract
+  language data is installed.
+- **Reusable structured text:** uploads produce UTF-8 TXT and JSON metadata
+  with original filenames, physical pages, and page-local numbered lines.
+- **Relevant context:** overlapping chunks and BM25 retrieval select source
+  passages within the model's context budget instead of sending every page.
 - **Checked references:** document IDs, page numbers, extracted line ranges,
   and quoted text are checked before supported answers appear.
 - **Source inspection:** click a citation to view the matching numbered lines.
@@ -66,6 +71,7 @@ Requirements:
 - Python **3.10+**.
 - Node.js and npm. The frontend toolchain supports Node **22.12+**; the launcher
   runs a cached Node 22 package through npm when the installed version is older.
+- The Tesseract system executable for scanned pages (native text PDFs work without it).
 - A compatible text-generating model and enough disk space and memory for it.
   First-time model and dependency installation requires an internet connection.
 
@@ -130,39 +136,45 @@ references to both PDFs. For more questions and expected results, see the
 
 ## Privacy, performance, and limits
 
-PDF extraction and OCR run in the browser. OCR workers, WASM cores, and language
-data are served by the app; scans are not sent to an external OCR service.
-Extracted text is sent to the selected model endpoint when you submit a question.
-With the default local gateway it stays local; choosing a remote endpoint sends
-that text to the remote service.
+PDF extraction and OCR run on your Python gateway. The original upload and
+structured TXT/JSON are stored in the application-managed `data/extracted/`
+directory, excluded from Git. Extraction uses separate low-priority processes,
+not the inference engine. No external OCR service is used. Extracted passages
+are sent as text to the selected chat endpoint; raw PDFs and page images never
+reach the text-only Qwen model.
 
-Documents and conversations are held in browser memory and clear on reload.
-Endpoint and model preferences are saved locally; API keys are kept in memory.
+Documents persist on the server until you remove their stored artifacts.
+Removing an attachment affects subsequent questions but does not delete its
+stored files. Conversations and attachment selections remain in browser memory
+and clear on reload. API keys remain memory-only. Configure retention and access
+appropriately for the server you run.
 
-Text PDFs skip OCR because their text layer is faster to extract. OCR helps make
-scans searchable; it does not accelerate model inference. A large model can still
-be very slow on a low-memory CPU machine, even for a small PDF. Model startup,
-reading the prompt, and generating the answer are separate from file extraction.
+Text PDFs skip unnecessary OCR. OCR makes scans searchable; it does not speed up
+model inference. A large model can still answer slowly on a low-memory CPU host.
 
-Current limits:
+Current defaults: 12 chat attachments; 64 MiB, 500 pages, and 2 million extracted
+characters per file; 30 seconds of OCR per page and 300 seconds per extraction
+job; one concurrent extraction job. BM25 context selection reserves space for
+instructions, the question, history, and the answer, respecting the gateway's
+actual context limit up to 32,768 tokens. The interface shows whether coverage
+is complete or partial. Citation checks require every referenced line to have
+been included in the retrieved passages.
 
-- Up to **12 files** per chat.
-- Up to **64 MiB**, **1,000 PDF pages**, and **2 million extracted characters**
-  per file, with a **120-second extraction timeout**.
-- Up to **100,000 characters** of serialized document evidence per question.
-  The full collection is sent; pages are not silently omitted. The model's own
-  context window can impose a smaller limit.
-- Supported uploads include PDFs, common text formats, and images. Word files
-  and password-protected PDFs are unsupported.
-- OCR falls back on PDF pages without extracted text. Complex layouts or pages
-  mixing searchable text and scanned content may require preprocessing.
+Install the Tesseract executable for scanned documents (`brew install tesseract`
+on macOS or `apt-get install tesseract-ocr` on Debian/Colab). Native extraction
+works without OCR; missing executable/language errors are shown clearly.
+Word files and password-protected PDFs remain unsupported. OCR and complex
+multi-column layouts can still introduce errors.
+
+See the [Python pipeline guide](docs/pdf-processing.md) for dependencies,
+Google Colab startup, API endpoints, storage, configuration, and limits.
 
 ## Development
 
 The application retains Colibri's architecture: a React/Vite frontend, the
-existing Python API gateway, and native inference engines. File extraction,
-OCR, and citation checks are frontend additions; document questions use the
-existing `/v1/chat/completions` streaming endpoint.
+existing Python API gateway, and native inference engines. Python document
+routes extend the gateway with extraction, retrieval, and citation validation. The existing UI and `/v1/chat/completions` streaming path
+remain in use; no inference-engine changes or embedding model are required.
 
 To run the frontend separately:
 
@@ -185,6 +197,9 @@ npm run build
 
 # Launcher regression tests, from the repository root
 python3 -m unittest discover -s scripts -p test_evidencelens_launch.py
+
+# Python extraction, OCR, retrieval, and API tests
+.evidencelens/venv/bin/python -m unittest discover -s tests -p test_pdf_processing.py
 ```
 
 See the [web interface README](web/README.md) for implementation details and the
@@ -202,8 +217,10 @@ server architecture.
 Credit for the original Colibri project belongs to **Vincenzo Fornaro
 ([JustVugg](https://github.com/JustVugg)) and the Colibri contributors**.
 See the [upstream repository](https://github.com/JustVugg/colibri) for their work.
-Document extraction uses [PDF.js](https://github.com/mozilla/pdf.js), and OCR uses
-[Tesseract.js](https://github.com/naptha/tesseract.js).
+Document extraction uses [PyMuPDF](https://github.com/pymupdf/PyMuPDF); OCR uses
+[Pytesseract](https://github.com/madmaze/pytesseract),
+[Tesseract](https://github.com/tesseract-ocr/tesseract), and
+[Pillow](https://github.com/python-pillow/Pillow).
 
 This repository retains the [Apache 2.0 license](LICENSE), original attribution
 in [NOTICE](NOTICE), and [third-party notices](THIRD_PARTY_NOTICES.md).

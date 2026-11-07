@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PdfSource } from './pdf-evidence'
 export interface FileProgress { label: string; value: number }
-export function useChatFiles(slot: number, onError: (error: string) => void) {
+export function useChatFiles(slot: number, baseUrl: string, apiKey: string, onError: (error: string) => void) {
   const [collections, setCollections] = useState<Record<number, PdfSource[]>>({})
   const [progress, setProgress] = useState<FileProgress | null>(null)
   const [ocrLanguage, setOcrLanguage] = useState('eng')
@@ -9,7 +9,7 @@ export function useChatFiles(slot: number, onError: (error: string) => void) {
   const busy = useRef(false)
   const sources = collections[slot] || []
   useEffect(() => () => controller.current?.abort(), [])
-  useEffect(() => { controller.current?.abort() }, [slot])
+  useEffect(() => { controller.current?.abort() }, [slot, baseUrl, apiKey])
   const replace = (sources: PdfSource[], target = slot) => setCollections(all => ({ ...all, [target]: sources }))
   const upload = async (files: File[]) => {
     if (!files.length || busy.current) return
@@ -23,7 +23,7 @@ export function useChatFiles(slot: number, onError: (error: string) => void) {
       const added: PdfSource[] = []
       for (let i = 0; i < files.length; i++) {
         abort.signal.throwIfAborted()
-        added.push(await loadDocument(files[i], { signal: abort.signal, language: ocrLanguage,
+        added.push(await loadDocument(files[i], { baseUrl, apiKey, signal: abort.signal, language: ocrLanguage,
           onProgress: (value, label) => { if (!abort.signal.aborted) setProgress({ label, value: (i + value) / files.length }) } }))
       }
       abort.signal.throwIfAborted()

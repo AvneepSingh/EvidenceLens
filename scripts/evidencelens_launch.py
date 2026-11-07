@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Launch this checkout's interface and gateway using the existing setup engine."""
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -95,6 +96,15 @@ def main(argv=None):
         except (OSError, urllib.error.URLError):
             existing = b""
         if status["state"] == "ready" and existing == index.read_bytes():
+            try:
+                with urllib.request.urlopen(url + "v1/documents", timeout=3) as response:
+                    capabilities = json.load(response)
+                if capabilities.get("service") != "evidencelens_documents" or capabilities.get("version") != 1:
+                    raise ValueError("older document service")
+            except (OSError, ValueError):
+                raise setup_flow.SetupError(
+                    "An older EvidenceLens server is already running. Stop it with Ctrl+C in its terminal, "
+                    "then rerun ./start-evidencelens.sh to load the Python document pipeline.")
             print("EvidenceLens is already running.")
             if not args.no_browser:
                 webbrowser.open(url)

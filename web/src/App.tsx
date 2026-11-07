@@ -44,7 +44,9 @@ import Brio from "./Brio"
 import { EvidenceMessage } from "./components/EvidenceMessage"
 import { ProgressStop } from "./components/ProgressStop"
 import { useChatFiles } from "./lib/use-chat-files"
-import { CHAT_EVIDENCE_INSTRUCTIONS, compactEvidenceContext, evidenceMarkdown, verifyAnswer } from "./lib/pdf-evidence"
+import { prepareDocumentContext, verifyDocumentAnswer, type PreparedContext } from "./lib/document-api"
+import { DocumentPreview } from "./components/DocumentPreview"
+import { evidenceMarkdown, verifyAnswer } from "./lib/pdf-evidence"
 import { BrainWorkspace } from "./BrainWorkspace"
 import { Brand } from "./components/Brand"
 import { ImageControls, ImageProgressCard, ImageResultCard, ImageStoppedCard, type ImageRun } from "./components/ImageTurn"
@@ -122,7 +124,9 @@ export default function App() {
   useEffect(() => { document.documentElement.dataset.theme = theme; try { localStorage.setItem("colibri.theme", theme) } catch {} }, [theme])
   useEffect(() => { if (historyOpen) historyDialog.current?.showModal(); else historyDialog.current?.close() }, [historyOpen])
   const [error, setError] = useState("")
-  const chatFiles = useChatFiles(cacheSlot, setError)
+  const chatFiles = useChatFiles(cacheSlot, baseUrl, apiKey, setError)
+  const [previewDocument, setPreviewDocument] = useState<string | null>(null)
+  const [evidenceCoverage, setEvidenceCoverage] = useState<PreparedContext["coverage"] | null>(null)
   const [requestStarted, setRequestStarted] = useState<number | null>(null)
   const [requestClock, setRequestClock] = useState(Date.now())
   useEffect(() => {
@@ -316,15 +320,20 @@ export default function App() {
     abortRef.current = controller
     const documents = [...payload].reverse().find(item => item.role === "user")?.documents || []
     let rawEvidence = ""
+    let prepared: PreparedContext | undefined
+    setEvidenceCoverage(null)
     const evidenceMode = documents.length > 0
     try {
       let turns = chatTurns(payload)
       if (evidenceMode) {
-        const context = compactEvidenceContext(documents)
-        if (context.length > 100_000) throw new Error("Attached text is too large for one question (100,000 characters). Remove files or use shorter documents; no pages were omitted.")
+        if (documents.some(doc => !doc.backend)) throw new Error("These files use the old extraction format. Remove them and upload them again.")
         const last = turns[turns.length - 1]
-        turns = [message("system", CHAT_EVIDENCE_INSTRUCTIONS), ...turns.filter(item => item.role !== "system").map(item =>
-          item.id === last.id ? { ...item, content: JSON.stringify({ question: item.content, documents: JSON.parse(context) }) } : item)]
+        prepared = await prepareDocumentContext(baseUrl, apiKey, documents.map(doc => doc.id), last.content,
+          turns.slice(0, -1).filter(item => item.role !== "system").map(({ role, content }) => ({ role, content })),
+          health?.context_tokens || 32768, maxTokens ?? 2048, controller.signal)
+        setEvidenceCoverage(prepared.coverage)
+        // Only role + plain string content reaches Qwen. No images or raw files.
+        turns = prepared.messages.map(item => message(item.role, item.content))
       }
       const result = await streamChat({
         baseUrl,
@@ -332,7 +341,7 @@ export default function App() {
         model,
         messages: turns,
         temperature: evidenceMode ? 0 : temperature,
-        maxTokens: maxTokens ?? undefined,
+        maxTokens: prepared?.response_tokens ?? maxTokens ?? undefined,
         enableThinking: evidenceMode ? false : thinking,
         cacheSlot: supportsCacheSlots(health) ? cacheSlot : undefined,
         compact: evidenceMode ? false : supportsCompaction(health),
@@ -366,7 +375,9 @@ export default function App() {
       if (evidenceMode) {
         controller.signal.throwIfAborted()
         if (result.finishReason !== "stop") throw new Error("The evidence answer was incomplete. Try a shorter question or fewer files.")
-        const evidence = verifyAnswer(rawEvidence, documents)
+        if (!prepared) throw new Error("Document context was not prepared.")
+        const checked = await verifyDocumentAnswer(baseUrl, apiKey, prepared.context_id, rawEvidence, controller.signal)
+        const evidence = verifyAnswer(JSON.stringify(checked), documents)
         updateMessages(current => current.map(item => item.id === targetId ? {
           ...item, evidence, documents, content: evidenceMarkdown(evidence, documents),
         } : item))
@@ -654,7 +665,7 @@ export default function App() {
                   <summary>{t("sidebar.reasoning")}</summary>
                   <div className="reasoning-body">{item.reasoning}</div>
                 </details>
-              : null}{item.evidence ? <EvidenceMessage answer={item.evidence} sources={item.documents || []} /> : item.content ? (item.role === "assistant" ? <Markdown text={item.content} /> : item.content) : <span className="typing" aria-label={t("ui.generating")}><i /><i /><i /></span>}</div>}
+              : null}{item.evidence ? <EvidenceMessage answer={item.evidence} sources={item.documents || []} baseUrl={baseUrl} apiKey={apiKey} /> : item.content ? (item.role === "assistant" ? <Markdown text={item.content} /> : item.content) : <span className="typing" aria-label={t("ui.generating")}><i /><i /><i /></span>}</div>}
             {item.role === "assistant" && item.content && <div className="message-actions"><button className="icon-action" aria-label={t("ui.copy")} title={t("ui.copy")} onClick={() => void copyMessage(item)}><Copy /></button>{copied === item.id && <span role="status">{t("ui.copied")}</span>}{index === messages.length - 1 && !loading && !imageMode && <button className="icon-action" aria-label={t("ui.regenerate")} title={t("ui.regenerate")} onClick={() => { const retry = resendFrom(messages, index); if (retry) void send(retry.text, retry.previous, retry.pictures, false, retry.documents || []) }}><RefreshCw /></button>}{index === messages.length - 1 && !loading && !imageMode && !item.evidence && supportsContinuation(health) && continuable(item) && <button className="icon-action" aria-label={t("ui.continue")} title={t("ui.continue")} onClick={() => void continueTurn()}><StepForward /></button>}</div>}
           </article>)}</div>
         </div>}
@@ -665,9 +676,10 @@ export default function App() {
             onDragOver={e => { if (!imageMode && e.dataTransfer.types.includes("Files")) e.preventDefault() }}
             onDrop={e => { if (!imageMode && !loading && e.dataTransfer.files.length) { e.preventDefault(); void chatFiles.upload(Array.from(e.dataTransfer.files)) } }}>
             {!imageMode && (chatFiles.sources.length > 0 || chatFiles.progress) && <div className="chat-file-attachments">
-              {chatFiles.sources.map(doc => <span className="chat-file-chip" key={doc.id}><FileText /><span><strong>{doc.name}</strong><small>{doc.pages.length} {doc.pages.length === 1 ? "page" : "pages"}{doc.ocrPages?.length ? " · OCR" : ""}</small></span><button type="button" aria-label={`Remove ${doc.name}`} disabled={loading || !!chatFiles.progress} onClick={() => chatFiles.remove(doc.id)}><X /></button></span>)}
+              {chatFiles.sources.map(doc => <span className="chat-file-chip" key={doc.id}><FileText /><span><strong>{doc.name}</strong><small>{doc.pages.length} {doc.pages.length === 1 ? "page" : "pages"}{doc.ocrPages?.length ? " · OCR" : ""}</small></span><button type="button" aria-label={`Remove ${doc.name}`} disabled={loading || !!chatFiles.progress} onClick={() => chatFiles.remove(doc.id)}><X /></button><button type="button" aria-label={`Preview ${doc.name}`} title="Preview extracted text" onClick={() => setPreviewDocument(doc.id)}><FileText /></button></span>)}
               {chatFiles.progress && <span className="chat-file-progress" role="status">{chatFiles.progress.label} · {Math.round(chatFiles.progress.value * 100)}%</span>}
             </div>}
+            {!imageMode && previewDocument && chatFiles.sources.some(d => d.id === previewDocument) && <DocumentPreview source={chatFiles.sources.find(d => d.id === previewDocument)!} baseUrl={baseUrl} apiKey={apiKey} onClose={() => setPreviewDocument(null)} />}
             {!imageMode && pending.length > 0 && <div className="composer-attachments">
               {pending.map((url, at) => <span key={at} className="attachment">
                 <img src={url} alt={t("ui.attachedImage", { n: at + 1 })} />
@@ -692,6 +704,7 @@ export default function App() {
               {chatFiles.progress ? <ProgressStop progress={chatFiles.progress.value} label={chatFiles.progress.label} onStop={chatFiles.stop} /> : loading ? <ProgressStop label={imageMode ? "image generation" : "answer generation"} onStop={() => abortRef.current?.abort()} /> : <button type="submit" className="send-button" aria-label={imageMode ? t("image.generate") : t("chat.send")} disabled={!canSend}><ArrowUp /></button>}
             </div>
           </form>
+          {!imageMode && evidenceCoverage && <p className="chat-files-hint">{evidenceCoverage.complete ? "Complete document context" : "Selected relevant passages"} · {evidenceCoverage.selected_lines}/{evidenceCoverage.total_lines} source lines · {evidenceCoverage.documents_selected}/{evidenceCoverage.documents_total} files</p>}
           {!imageMode && loading && <p className="chat-operation-status" role="status">{tokenCount ? `Generating answer · ${tokenCount} chunks received` : "Waiting for model to read and answer"} · {Math.max(0, Math.floor((requestClock - (requestStarted || requestClock)) / 1000))}s</p>}
           {!imageMode && chatFiles.sources.length > 0 && !loading && <p className="chat-files-hint">Ask a question, or send to get a brief abstract. Files stay attached to this chat. Page and extracted line references appear in the answer.</p>}
           {empty && !chatFiles.sources.length && <div className="suggestions">{suggestions.map(({ key, Icon, label }) => <button key={key} onClick={() => { setDraft(t(key)); draftRef.current?.focus() }}><Icon />{t(label)}</button>)}</div>}

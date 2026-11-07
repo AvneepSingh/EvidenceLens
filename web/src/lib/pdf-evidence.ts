@@ -1,4 +1,4 @@
-export interface PdfSource { id: string; name: string; pages: string[][]; ocrPages?: number[] }
+export interface PdfSource { id: string; name: string; pages: string[][]; ocrPages?: number[]; backend?: boolean; extractionMethod?: string; textFile?: string; warnings?: string[] }
 export interface Citation { documentId: string; page: number; startLine: number; endLine: number; quote: string }
 export interface EvidenceClaim { kind: 'factual' | 'inferred' | 'thought'; text: string; citations: Citation[] }
 export interface EvidenceAnswer { claims: EvidenceClaim[] }

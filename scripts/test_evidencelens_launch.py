@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 spec = importlib.util.spec_from_file_location("evidencelens_launch", Path(__file__).with_name("evidencelens_launch.py"))
 launch = importlib.util.module_from_spec(spec)
@@ -69,8 +69,21 @@ class EvidenceLensLaunchTests(unittest.TestCase):
     def test_reuses_matching_evidencelens_server(self):
         self.mocks['server_status'].return_value = {'state': 'ready'}
         with patch.object(launch.urllib.request, 'urlopen') as get:
-            get.return_value.__enter__.return_value.read.return_value = (self.root / 'web/dist/index.html').read_bytes()
+            index, capabilities = MagicMock(), MagicMock()
+            index.__enter__.return_value.read.return_value = (self.root / 'web/dist/index.html').read_bytes()
+            capabilities.__enter__.return_value.read.return_value = '{"service":"evidencelens_documents","version":1}'
+            get.side_effect = [index, capabilities]
             self.assertEqual(launch.main(['--no-browser']), 0)
+        self.mocks['start_server'].assert_not_called()
+
+    def test_requires_restart_when_existing_server_lacks_python_document_routes(self):
+        self.mocks['server_status'].return_value = {'state': 'ready'}
+        with patch.object(launch.urllib.request, 'urlopen') as get:
+            index = MagicMock()
+            index.__enter__.return_value.read.return_value = (self.root / 'web/dist/index.html').read_bytes()
+            get.side_effect = [index, OSError('old server')]
+            with self.assertRaisesRegex(launch.setup_flow.SetupError, 'older EvidenceLens server'):
+                launch.main(['--no-browser'])
         self.mocks['start_server'].assert_not_called()
 
     def test_refuses_shadowing_dashboard(self):

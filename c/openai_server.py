@@ -7804,6 +7804,12 @@ class APIServer(ThreadingHTTPServer):
         self.engine_restarts = 0
         self.engine_swap = threading.Lock()   # a restart's swap against serve()'s teardown
 
+    def server_close(self):
+        documents = getattr(self, "documents_service", None)
+        if documents is not None:
+            documents.close()
+        super().server_close()
+
     def model_entry(self):
         """The /v1/models object. An image model says so, and carries the size
         rules its engine announced, so a client can build a valid request
@@ -8331,6 +8337,10 @@ class APIHandler(BaseHTTPRequestHandler):
         try:
             self._check_host()
             path = urlsplit(self.path).path
+            if path == "/v1/documents" or path.startswith("/v1/documents/"):
+                from pdf_processing.api import handle
+                if handle(self, request_id):
+                    return
             if path == "/metrics":
                 self.require_auth()
                 data = self.server.scheduler.prometheus().encode("utf-8")
@@ -8450,6 +8460,11 @@ class APIHandler(BaseHTTPRequestHandler):
         try:
             self._check_host()
             self.require_auth()
+            path = urlsplit(self.path).path
+            if path == "/v1/documents" or path.startswith("/v1/documents/"):
+                from pdf_processing.api import handle
+                if handle(self, request_id):
+                    return
             try:
                 body = self.read_json()
             except TimeoutError:
