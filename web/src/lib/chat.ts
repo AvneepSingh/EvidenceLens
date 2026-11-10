@@ -44,6 +44,7 @@ export function chatMarkdown(messages: ChatMessage[], model: string, when: Date,
     for (let n = 1; n <= pictures; n++) lines.push(`[${labels.image} ${n}]`)
     if (item.reasoning?.trim())
       lines.push(`<details><summary>${labels.reasoning}</summary>\n\n${item.reasoning.trim()}\n\n</details>`)
+    if (item.evidenceUnverified) lines.push('*Plain-language answer — automatic source verification unavailable.*')
     if (item.content.trim()) lines.push(item.content.trim())
     parts.push(lines.join("\n\n"))
   }

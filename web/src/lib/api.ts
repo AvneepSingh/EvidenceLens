@@ -22,6 +22,7 @@ export interface ChatMessage {
      archives; never sent to the server. */
   documents?: PdfSource[]
   evidence?: EvidenceAnswer
+  evidenceUnverified?: boolean
   finish?: string
   /* Both turns of a text-to-image exchange, the prompt and its picture, carry
      mode "image". They stay in the conversation on screen but are never sent to

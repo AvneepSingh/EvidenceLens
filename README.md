@@ -60,7 +60,11 @@ model judgments. OCR can also introduce recognition errors; inspect the original
 scan when accuracy matters. Invalid JSON or references trigger one automatic
 repair pass using the original question, source context, draft text, and validation
 feedback. The repaired answer is checked again before being shown. If it still
-fails, it is rejected rather than displayed as verified.
+fails, one final request answers in ordinary prose using the original question
+and document excerpts, without failed drafts or JSON-format instructions. This
+plain answer is marked as not automatically source-verified. When the excerpts
+are insufficient, it can use general knowledge while distinguishing that from
+document-backed information.
 
 Page numbers count from the first physical PDF page. Line numbers are generated
 from extracted text and restart on each page; they can differ from printed line

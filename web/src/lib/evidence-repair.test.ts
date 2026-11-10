@@ -12,7 +12,7 @@ const result: StreamChatResult = { finishReason: 'stop', usage: { prompt_tokens:
 const rejected = () => new Response(JSON.stringify({ error: { code: 'evidence_validation_error', message: 'Invalid JSON or unsupported citation.' } }), { status: 400 })
 const json = (value: unknown) => new Response(JSON.stringify(value))
 const defaults = () => ({ baseUrl: '/v1', apiKey: '', sources, prepared, first: { raw: 'broken JSON', result }, signal: new AbortController().signal,
-  generate: vi.fn().mockResolvedValue({ raw: JSON.stringify(answer), result }), onRepair: vi.fn() })
+  generate: vi.fn().mockResolvedValue({ raw: JSON.stringify(answer), result }), onRepair: vi.fn(), onPlainFallback: vi.fn() })
 
 describe('bounded answer repair', () => {
   it('returns valid first answers without another generation', async () => {
@@ -32,17 +32,41 @@ describe('bounded answer repair', () => {
     expect(JSON.parse(request.mock.calls[2][1].body).context_id).toBe('repaired')
     expect(resolved.evidence).toEqual(answer); expect(resolved.result.usage?.total_tokens).toBe(30)
   })
-  it('stops after one failed repair without displaying unsupported evidence', async () => {
-    const request = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(json({ ...prepared, context_id: 'repaired' })).mockResolvedValueOnce(rejected())
+  it('answers plainly after a failed repair using the original context, without the rejected JSON', async () => {
+    const repaired = { ...prepared, context_id: 'repaired', messages: [{ role: 'user', content: 'REJECTED JSON DRAFT AND VALIDATION FEEDBACK' }] }
+    const request = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(json(repaired)).mockResolvedValueOnce(rejected())
     vi.stubGlobal('fetch', request); const options = defaults()
-    await expect(resolveEvidenceDraft(options)).rejects.toThrow('after one automatic repair')
-    expect(options.generate).toHaveBeenCalledTimes(1); expect(request).toHaveBeenCalledTimes(3)
+    options.generate.mockResolvedValueOnce({ raw: 'still broken JSON', result }).mockResolvedValueOnce({ raw: 'Nine tasks are complete.', result })
+    const resolved = await resolveEvidenceDraft(options)
+    expect(resolved.plainText).toBe('Nine tasks are complete.'); expect(resolved.evidence).toBeUndefined()
+    expect(options.generate).toHaveBeenCalledTimes(2); expect(request).toHaveBeenCalledTimes(3)
+    const fallback = options.generate.mock.calls[1][0]
+    expect(fallback.messages[0].content).toContain('ordinary prose')
+    expect(fallback.messages[0].content).not.toContain('Return ONLY JSON')
+    expect(fallback.messages.at(-1).content).toBe('Original question and source')
+    expect(JSON.stringify(fallback.messages)).not.toContain('REJECTED JSON DRAFT')
+    expect(resolved.result.usage?.total_tokens).toBe(45)
   })
   it.each([401, 404, 500])('does not retry HTTP %i failures', async status => {
     const request = vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: 'Service unavailable.', code: 'document_error' } }), { status }))
     vi.stubGlobal('fetch', request); const options = defaults()
     await expect(resolveEvidenceDraft(options)).rejects.toThrow('Service unavailable')
     expect(options.generate).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledTimes(1)
+  })
+  it('recognizes citation failures from older backend error codes and answers plainly', async () => {
+    const legacy = () => new Response(JSON.stringify({ error: { code: 'document_error', message: 'Citation refers to text that was not in the retrieved context.' } }), { status: 400 })
+    const request = vi.fn().mockResolvedValueOnce(legacy()).mockResolvedValueOnce(json({ ...prepared, context_id: 'repaired' })).mockResolvedValueOnce(legacy())
+    vi.stubGlobal('fetch', request); const options = defaults()
+    options.generate.mockResolvedValueOnce({ raw: 'still invalid', result }).mockResolvedValueOnce({ raw: 'Here is a general answer to your question.', result })
+    expect((await resolveEvidenceDraft(options)).plainText).toBe('Here is a general answer to your question.')
+    expect(options.generate).toHaveBeenCalledTimes(2)
+  })
+  it.each([400, 404, 422])('answers plainly if the repair endpoint fails with HTTP %i', async status => {
+    const request = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'document_error', message: 'Repair unavailable or context budget too small.' } }), { status }))
+    vi.stubGlobal('fetch', request); const options = defaults()
+    options.generate.mockResolvedValue({ raw: 'An ordinary answer using the original question.', result })
+    expect((await resolveEvidenceDraft(options)).plainText).toBe('An ordinary answer using the original question.')
+    expect(options.generate).toHaveBeenCalledTimes(1)
   })
   it('does not retry network failures', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Network disconnected')))
@@ -55,12 +79,20 @@ describe('bounded answer repair', () => {
     await expect(resolveEvidenceDraft(options)).rejects.toMatchObject({ name: 'AbortError' })
     expect(options.generate).not.toHaveBeenCalled()
   })
-  it('can repair truncated malformed JSON but never accepts an unfinished final draft', async () => {
+  it('answers plainly if the repair is incomplete', async () => {
     const request = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(json({ ...prepared, context_id: 'repaired' })).mockResolvedValueOnce(json({ answer }))
     vi.stubGlobal('fetch', request); const options = defaults()
     options.first.result = { ...result, finishReason: 'length' }
-    options.generate.mockResolvedValue({ raw: JSON.stringify(answer), result: { ...result, finishReason: 'length' } })
-    await expect(resolveEvidenceDraft(options)).rejects.toThrow('incomplete')
+    options.generate.mockResolvedValueOnce({ raw: JSON.stringify(answer), result: { ...result, finishReason: 'length' } })
+      .mockResolvedValueOnce({ raw: 'Nine tasks are complete.', result })
+    expect((await resolveEvidenceDraft(options)).plainText).toBe('Nine tasks are complete.')
+    expect(options.generate).toHaveBeenCalledTimes(2)
+  })
+  it('stops before the plain fallback starts if the user cancels', async () => {
+    const request = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(json({ ...prepared, context_id: 'repaired' })).mockResolvedValueOnce(rejected())
+    vi.stubGlobal('fetch', request)
+    const controller = new AbortController(); const options = { ...defaults(), signal: controller.signal, onPlainFallback: vi.fn(() => controller.abort()) }
+    await expect(resolveEvidenceDraft(options)).rejects.toMatchObject({ name: 'AbortError' })
     expect(options.generate).toHaveBeenCalledTimes(1)
   })
 })

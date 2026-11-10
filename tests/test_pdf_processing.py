@@ -404,6 +404,15 @@ class HTTPIntegrationTests(unittest.TestCase):
             self.assertEqual(json.load(response)['answer']['claims'][0]['text'],'Nine tasks.')
         self.assertEqual(self.engine.calls,[])
 
+    def test_frontend_index_is_not_cached(self):
+        from openai_server import APIHandler
+        folder=Path(self.temp.name)/'web'; folder.mkdir()
+        (folder/'index.html').write_text('<title>EvidenceLens current build</title>')
+        with patch.object(APIHandler,'WEB_DIST',folder):
+            with self.request('/') as response:
+                self.assertEqual(response.headers.get('Cache-Control'),'no-store')
+                self.assertIn('current build',response.read().decode())
+
     def test_document_routes_require_same_authentication_as_chat(self):
         with self.assertRaises(HTTPError) as caught: self.request('/v1/documents/'+'a'*32,auth=False)
         self.assertEqual(caught.exception.code,401)

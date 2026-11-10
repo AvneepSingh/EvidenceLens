@@ -128,6 +128,7 @@ export default function App() {
   const chatFiles = useChatFiles(cacheSlot, baseUrl, apiKey, setError)
   const [previewDocument, setPreviewDocument] = useState<string | null>(null)
   const [evidenceCoverage, setEvidenceCoverage] = useState<PreparedContext["coverage"] | null>(null)
+  const [plainAnswerFallback, setPlainAnswerFallback] = useState(false)
   const [repairingAnswer, setRepairingAnswer] = useState(false)
   const [requestStarted, setRequestStarted] = useState<number | null>(null)
   const [requestClock, setRequestClock] = useState(Date.now())
@@ -309,6 +310,7 @@ export default function App() {
     setError("")
     setLoading(true)
     setRepairingAnswer(false)
+    setPlainAnswerFallback(false)
     setRequestStarted(Date.now())
     setRequestClock(Date.now())
     setStreamStart(null)
@@ -381,6 +383,7 @@ export default function App() {
         const resolved = await resolveEvidenceDraft({
           baseUrl, apiKey, sources: documents, prepared, first: { raw: rawEvidence, result }, signal: controller.signal,
           onRepair: context => { setRepairingAnswer(true); if (context) setEvidenceCoverage(context.coverage) },
+          onPlainFallback: context => { setPlainAnswerFallback(true); setEvidenceCoverage(context.coverage) },
           generate: async context => {
             prepared = context
             turns = context.messages.map(item => message(item.role, item.content))
@@ -392,7 +395,8 @@ export default function App() {
         result = resolved.result
         const evidence = resolved.evidence
         updateMessages(current => current.map(item => item.id === targetId ? {
-          ...item, evidence, documents, content: evidenceMarkdown(evidence, documents),
+          ...item, evidence, documents, evidenceUnverified: !evidence,
+          content: evidence ? evidenceMarkdown(evidence, documents) : resolved.plainText || "",
         } : item))
       }
       /* The turn's own figure keeps the same meaning as the live one, so the
@@ -678,8 +682,8 @@ export default function App() {
                   <summary>{t("sidebar.reasoning")}</summary>
                   <div className="reasoning-body">{item.reasoning}</div>
                 </details>
-              : null}{item.evidence ? <EvidenceMessage answer={item.evidence} sources={item.documents || []} baseUrl={baseUrl} apiKey={apiKey} /> : item.content ? (item.role === "assistant" ? <Markdown text={item.content} /> : item.content) : <span className="typing" aria-label={t("ui.generating")}><i /><i /><i /></span>}</div>}
-            {item.role === "assistant" && item.content && <div className="message-actions"><button className="icon-action" aria-label={t("ui.copy")} title={t("ui.copy")} onClick={() => void copyMessage(item)}><Copy /></button>{copied === item.id && <span role="status">{t("ui.copied")}</span>}{index === messages.length - 1 && !loading && !imageMode && <button className="icon-action" aria-label={t("ui.regenerate")} title={t("ui.regenerate")} onClick={() => { const retry = resendFrom(messages, index); if (retry) void send(retry.text, retry.previous, retry.pictures, false, retry.documents || []) }}><RefreshCw /></button>}{index === messages.length - 1 && !loading && !imageMode && !item.evidence && supportsContinuation(health) && continuable(item) && <button className="icon-action" aria-label={t("ui.continue")} title={t("ui.continue")} onClick={() => void continueTurn()}><StepForward /></button>}</div>}
+              : null}{item.evidenceUnverified && <small className="evidence-disclaimer">Plain-language answer · automatic source verification unavailable.</small>}{item.evidence ? <EvidenceMessage answer={item.evidence} sources={item.documents || []} baseUrl={baseUrl} apiKey={apiKey} /> : item.content ? (item.role === "assistant" ? <Markdown text={item.content} /> : item.content) : <span className="typing" aria-label={t("ui.generating")}><i /><i /><i /></span>}</div>}
+            {item.role === "assistant" && item.content && <div className="message-actions"><button className="icon-action" aria-label={t("ui.copy")} title={t("ui.copy")} onClick={() => void copyMessage(item)}><Copy /></button>{copied === item.id && <span role="status">{t("ui.copied")}</span>}{index === messages.length - 1 && !loading && !imageMode && <button className="icon-action" aria-label={t("ui.regenerate")} title={t("ui.regenerate")} onClick={() => { const retry = resendFrom(messages, index); if (retry) void send(retry.text, retry.previous, retry.pictures, false, retry.documents || []) }}><RefreshCw /></button>}{index === messages.length - 1 && !loading && !imageMode && !item.evidence && !item.evidenceUnverified && supportsContinuation(health) && continuable(item) && <button className="icon-action" aria-label={t("ui.continue")} title={t("ui.continue")} onClick={() => void continueTurn()}><StepForward /></button>}</div>}
           </article>)}</div>
         </div>}
         <div className="composer-wrap">
@@ -718,7 +722,7 @@ export default function App() {
             </div>
           </form>
           {!imageMode && evidenceCoverage && <p className="chat-files-hint">{evidenceCoverage.complete ? "Complete document context" : "Selected relevant passages"} · {evidenceCoverage.selected_lines}/{evidenceCoverage.total_lines} source lines · {evidenceCoverage.documents_selected}/{evidenceCoverage.documents_total} files</p>}
-          {!imageMode && loading && <p className="chat-operation-status" role="status">{repairingAnswer ? "Rechecking the draft against your question and source context" : tokenCount ? `Generating answer · ${tokenCount} chunks received` : "Waiting for model to read and answer"} · {Math.max(0, Math.floor((requestClock - (requestStarted || requestClock)) / 1000))}s</p>}
+          {!imageMode && loading && <p className="chat-operation-status" role="status">{plainAnswerFallback ? "Writing a plain-language answer" : repairingAnswer ? "Rechecking the draft against your question and source context" : tokenCount ? `Generating answer · ${tokenCount} chunks received` : "Waiting for model to read and answer"} · {Math.max(0, Math.floor((requestClock - (requestStarted || requestClock)) / 1000))}s</p>}
           {!imageMode && chatFiles.sources.length > 0 && !loading && <p className="chat-files-hint">Ask a question, or send to get a brief abstract. Files stay attached to this chat. Page and extracted line references appear in the answer.</p>}
           {empty && !chatFiles.sources.length && <div className="suggestions">{suggestions.map(({ key, Icon, label }) => <button key={key} onClick={() => { setDraft(t(key)); draftRef.current?.focus() }}><Icon />{t(label)}</button>)}</div>}
           {!empty && !imageMode && lastRun?.finishReason === "length" && <p className="truncation-note">{t("topbar.truncatedHelp")}</p>}

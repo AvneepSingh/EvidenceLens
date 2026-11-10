@@ -79,6 +79,7 @@ def main(argv=None):
     url = f"http://{shown}:{port}/"
     print(f"\nEvidenceLens: {url}")
     print(f"Interface:   {dist}")
+    print("Answer fallback: plain best-effort answer after one failed repair (plain-fallback-v2).")
     print(f"Gateway:     {cfg['launcher']}")
     print(f"Model:       {cfg['model_dir']}")
     print(f"Engine:      {cfg['engine']}")

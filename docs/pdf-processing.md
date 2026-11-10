@@ -223,12 +223,24 @@ can be truncated and fewer source passages selected if necessary. The interface
 updates coverage and shows “Rechecking the draft against your question and source
 context.” The same small Stop control cancels either pass. Only a complete reply
 that passes backend and frontend validation is displayed as an evidence answer.
-If repair also fails, the user receives a clear error rather than unchecked
-citations. HTTP/authentication/network failures do not trigger model retries.
+If repair also fails validation or returns an incomplete response, one final model
+request produces ordinary prose. It uses the pristine original question and source
+excerpts, excludes both failed drafts and JSON-format instructions, and is not
+sent through JSON/citation validation again. The interface marks it “automatic
+source verification unavailable,” without factual/inferred badges or checked
+citation links. Markdown exports retain that notice. Stop also applies to this
+last pass; there is no further retry loop. It may use general knowledge if the
+excerpts are insufficient, clearly separating that from document-derived facts
+and acknowledging uncertainty rather than fabricating answers. If the model still emits a known JSON
+answer shape, its answer text is extracted without preserving any claimed
+verification. If the final plain response is also malformed, readable claim text can be
+recovered from the preceding draft as unverified prose. A plain limitation
+message is used only when no readable model answer is available. HTTP/authentication/network failures do not trigger model retries.
 
 Each context permits only one repair; repaired contexts cannot recursively
-request repairs. Token usage includes both generations when the server reports
-usage for both. Ordinary chat is unchanged. The capability response includes
+request repairs. Token usage includes all attempted generations when the server reports usage.
+The ordinary-prose pass uses a shorter system prompt and the original response
+budget, so it stays within the original prepared context budget. Ordinary chat is unchanged. The capability response includes
 `answer_repair: true`, allowing the launcher to detect a running server that
 needs restarting after this update.
 
@@ -303,3 +315,13 @@ Unicode, duplicate names, empty/corrupt inputs, large PDFs, retrieval budgets,
 page/line consistency, cross-file citations, out-of-context citation rejection,
 untrusted document instructions, job limits/cancellation, authentication, TXT and
 original downloads, text-only model transport, and ordinary text chat.
+
+### Deploying updated answer handling
+
+If the browser still displays “The answer still failed validation after one
+automatic repair,” it is using the older frontend: that string is absent from
+the current source and built application. Copy/push these updated project files
+to the Colab checkout, rerun `start-evidencelens.sh` to rebuild, then hard-refresh
+the browser tab. The startup log prints `plain-fallback-v2`. The HTML includes
+`<meta name="evidencelens-ui" content="plain-fallback-v2">`; the gateway sends
+`Cache-Control: no-store` for the entry HTML to avoid stale bundle references.

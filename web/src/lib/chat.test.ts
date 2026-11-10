@@ -145,3 +145,11 @@ describe('document conversation regeneration', () => {
     expect(retry?.documents).toEqual(documents)
   })
 })
+
+describe('plain fallback exports', () => {
+  it('retains the unverified-source notice when an answer is exported', () => {
+    const text = chatMarkdown([{ ...assistant('Nine tasks are complete.'), evidenceUnverified: true }], 'test', new Date(), { user: 'You', assistant: 'EvidenceLens', reasoning: 'Reasoning', image: 'image' })
+    expect(text).toContain('automatic source verification unavailable')
+    expect(text).toContain('Nine tasks are complete.')
+  })
+})
