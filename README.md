@@ -42,6 +42,26 @@ the supplied documents, with clickable page and line references where applicable
 Existing Colibri workspaces, including ordinary chat, System One, Brain, and
 Profiling, remain available. Their capabilities depend on the selected model.
 
+## Screenshots
+
+### Chat workspace
+
+![EvidenceLens chat workspace with file upload, OCR language selection, and workspace navigation](ss/Screenshot%202026-11-09%20at%207.52.20%E2%80%AFPM.png)
+
+Upload documents directly in chat, choose an OCR language, and ask questions from the same composer.
+
+### Factual answers with source references
+
+![Factual answer showing checked quotations with PDF filenames, page numbers, and line ranges](ss/Screenshot%202026-11-09%20at%207.55.00%E2%80%AFPM.png)
+
+Document-grounded answers show their classification and clickable source references, including page numbers and extracted line ranges.
+
+### Plain-language fallback
+
+![Plain-language answer about an attached PDF with an automatic source verification unavailable notice](ss/Screenshot%202026-11-09%20at%207.54.27%E2%80%AFPM.png)
+
+When structured answer repair fails, chat can still provide a plain-language answer. The verification notice distinguishes it from a checked evidence response.
+
 ## How answers are labeled
 
 | Label | Meaning | References |
